@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Personagem 3D Interativa — Clínica Premium</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#0f1113;color:#f6f6f6;font-family:Inter,Segoe UI,Arial,sans-serif}
+  .wrap{max-width:1120px;margin:auto;padding:16px}
+  .stage{height:72vh;min-height:520px;position:relative;overflow:hidden;border:1px solid #333;border-radius:20px;background:linear-gradient(#dfe6ea,#cad3d8)}
+  canvas{display:block;width:100%;height:100%}
+  .panel{position:absolute;background:rgba(18,18,18,.74);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:13px;padding:10px 12px;z-index:3}
+  #status{left:14px;top:14px;font-size:13px}
+  #bubble{right:14px;top:14px;max-width:360px;line-height:1.35}
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(232,236,239,.88);color:#151515;font-size:18px;font-weight:700;z-index:5;text-align:center;padding:20px}
+  #hint{left:14px;bottom:14px;font-size:13px;max-width:470px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  button{border:1px solid #444;background:#252525;color:white;border-radius:10px;padding:10px 14px;font-size:15px;cursor:pointer}button:hover{background:#323232}
+  form{display:flex;gap:8px;margin-top:10px}input{flex:1;min-width:0;border:1px solid #444;background:#191919;color:#fff;border-radius:10px;padding:11px;font-size:16px}
+  .small{margin-top:10px;color:#aaa;font-size:13px;line-height:1.45}
+  @media(max-width:650px){.stage{height:64vh;min-height:430px}#bubble{left:14px;right:14px;top:auto;bottom:70px;max-width:none}#hint{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="stage" class="stage">
+    <div id="loading">Montando a clínica premium e carregando a personagem 3D…</div>
+    <div id="status" class="panel">Inicializando…</div>
+    <div id="bubble" class="panel">Oi! Agora vou aparecer em uma clínica mais sofisticada, mantendo o foco principal em mim.</div>
+    <div id="hint" class="panel">Cenário estático de clínica premium: porcelanato claro, recepção elegante, cadeiras de espera, divisórias de vidro fosco e fundo suave.</div>
+  </div>
+  <div class="controls">
+    <button type="button" data-act="idle">🙂 Parada</button>
+    <button type="button" data-act="greet">👋 Cumprimentar</button>
+    <button type="button" data-act="walk">🚶 Caminhar</button>
+    <button type="button" data-act="turn">↻ Girar</button>
+  </div>
+  <form id="chat"><input id="msg" placeholder="Digite: oi, acena, anda, para, gira…"><button>Interagir</button></form>
+  <div class="small">Versão com cenário mais elegante e acolhedor. O fundo permanece suave para a personagem continuar em destaque.</div>
+</div>
+
+<script type="module">
+(async()=>{
+ const loading=document.getElementById('loading'),status=document.getElementById('status'),bubble=document.getElementById('bubble'),stage=document.getElementById('stage');
+ try{
+  status.textContent='Carregando motor 3D…';
+  const THREE=await import('https://esm.sh/three@0.160.0');
+  const {OrbitControls}=await import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+  const {FBXLoader}=await import('https://esm.sh/three@0.160.0/examples/jsm/loaders/FBXLoader.js');
+
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color(0xd7dde1);
+  scene.fog=new THREE.Fog(0xd7dde1,8.5,15.5);
+
+  const camera=new THREE.PerspectiveCamera(30,1,.01,100);
+  camera.position.set(0,1.48,4.55);
+
+  const renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+  renderer.outputColorSpace=THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  stage.appendChild(renderer.domElement);
+
+  const controls=new OrbitControls(camera,renderer.domElement);
+  controls.target.set(0,1.05,0);
+  controls.enableDamping=true;
+  controls.minDistance=2.0;
+  controls.maxDistance=7.0;
+  controls.maxPolarAngle=Math.PI*.53;
+
+  scene.add(new THREE.HemisphereLight(0xf8fbff,0x73808a,1.05));
+  const key=new THREE.DirectionalLight(0xfff7f0,1.38);key.position.set(4.5,6.5,5.4);key.castShadow=true;key.shadow.mapSize.set(2048,2048);scene.add(key);
+  const fill=new THREE.DirectionalLight(0xd4e7ef,0.42);fill.position.set(-5,4.5,-3);scene.add(fill);
+  const soft=new THREE.PointLight(0xffffff,.22,8);soft.position.set(0,2.8,1.5);scene.add(soft);
+
+  function roundedRectShape(w,h,r){
+    const s=new THREE.Shape();
+    s.moveTo(-w/2+r,-h/2);
+    s.lineTo(w/2-r,-h/2); s.quadraticCurveTo(w/2,-h/2,w/2,-h/2+r);
+    s.lineTo(w/2,h/2-r); s.quadraticCurveTo(w/2,h/2,w/2-r,h/2);
+    s.lineTo(-w/2+r,h/2); s.quadraticCurveTo(-w/2,h/2,-w/2,h/2-r);
+    s.lineTo(-w/2,-h/2+r); s.quadraticCurveTo(-w/2,-h/2,-w/2+r,-h/2);
+    return s;
+  }
+
+  function makeFloorTexture(){
+    const c=document.createElement('canvas'); c.width=1024; c.height=1024;
+    const g=c.getContext('2d');
+    g.fillStyle='#ece7e1'; g.fillRect(0,0,c.width,c.height);
+    const tile=170;
+    for(let y=0;y<c.height;y+=tile){
+      for(let x=0;x<c.width;x+=tile){
+        const tone=((x/tile+y/tile)%2===0)?'#efeae4':'#e9e3dc';
+        g.fillStyle=tone; g.fillRect(x,y,tile,tile);
+        g.strokeStyle='rgba(196,188,180,.65)'; g.lineWidth=4; g.strokeRect(x,y,tile,tile);
+        g.fillStyle='rgba(255,255,255,.09)'; g.fillRect(x+12,y+14,tile-24,10);
+        g.fillStyle='rgba(215,208,201,.08)'; g.fillRect(x+18,y+tile-28,tile-36,7);
+      }
+    }
+    const tx=new THREE.CanvasTexture(c);
+    tx.wrapS=tx.wrapT=THREE.RepeatWrapping;
+    tx.repeat.set(5.6,5.6);
+    tx.colorSpace=THREE.SRGBColorSpace;
+    tx.anisotropy=8;
+    return tx;
+  }
+
+  function addChair(group,x,z,rot=0){
+    const seatMat=new THREE.MeshStandardMaterial({color:0xcab8a8, roughness:.92});
+    const legMat=new THREE.MeshStandardMaterial({color:0x7d868c, roughness:.72, metalness:.15});
+    const g=new THREE.Group();
+    const seat=new THREE.Mesh(new THREE.BoxGeometry(.68,.1,.62),seatMat); seat.position.set(0,.53,0); seat.castShadow=true; g.add(seat);
+    const back=new THREE.Mesh(new THREE.BoxGeometry(.68,.52,.1),seatMat); back.position.set(0,.82,-.26); back.castShadow=true; g.add(back);
+    [[-.24,-.2],[.24,-.2],[-.24,.2],[.24,.2]].forEach(([lx,lz])=>{ const leg=new THREE.Mesh(new THREE.CylinderGeometry(.022,.022,.5,10),legMat); leg.position.set(lx,.25,lz); g.add(leg); });
+    g.position.set(x,0,z); g.rotation.y=rot; group.add(g);
+  }
+
+  function addPicture(group,x,y,z,c1,c2){
+    const frame=new THREE.Mesh(new THREE.BoxGeometry(.96,.68,.04), new THREE.MeshStandardMaterial({color:0xf3f5f6, roughness:.95}));
+    frame.position.set(x,y,z); group.add(frame);
+    const art=new THREE.Mesh(new THREE.PlaneGeometry(.82,.54), new THREE.MeshStandardMaterial({color:c1, roughness:.98, transparent:true, opacity:.72}));
+    art.position.set(x,y,z+.03); group.add(art);
+    const stripe=new THREE.Mesh(new THREE.PlaneGeometry(.52,.08), new THREE.MeshStandardMaterial({color:c2, roughness:.98, transparent:true, opacity:.55}));
+    stripe.position.set(x,y,z+.035); stripe.rotation.z=.18; group.add(stripe);
+  }
+
+  function addPlant(group,x,z,scale=1){
+    const pot=new THREE.Mesh(new THREE.CylinderGeometry(.16*scale,.19*scale,.34*scale,18), new THREE.MeshStandardMaterial({color:0xd9d0c6, roughness:.95}));
+    pot.position.set(x,.17*scale,z); group.add(pot);
+    for(let i=0;i<8;i++){
+      const leaf=new THREE.Mesh(new THREE.SphereGeometry(.17*scale,10,10), new THREE.MeshStandardMaterial({color:i%2?'#7fa18e':'#93b5a2', roughness:.92}));
+      leaf.scale.set(.85,1.7,.58);
+      leaf.position.set(x+Math.sin(i*.8)*.15*scale,.48*scale+i*.075*scale,z+Math.cos(i*.95)*.12*scale);
+      group.add(leaf);
+    }
+  }
+
+  function addClinic(){
+    const group=new THREE.Group();
+
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(13,10.5),
+      new THREE.MeshStandardMaterial({map:makeFloorTexture(), roughness:.95, metalness:0})
+    );
+    floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; group.add(floor);
+
+    const wallMat=new THREE.MeshStandardMaterial({color:0xe7ecef, roughness:.99});
+    const accentWallMat=new THREE.MeshStandardMaterial({color:0xd5ddd8, roughness:.98});
+    const glassMat=new THREE.MeshStandardMaterial({color:0xc8d6de, roughness:.18, metalness:.02, transparent:true, opacity:.18});
+    const frostedMat=new THREE.MeshStandardMaterial({color:0xe8f1f4, roughness:.96, transparent:true, opacity:.42, side:THREE.DoubleSide});
+
+    const backWall=new THREE.Mesh(new THREE.PlaneGeometry(10,3.6), wallMat);
+    backWall.position.set(0,1.8,-3.45); group.add(backWall);
+    const leftWall=new THREE.Mesh(new THREE.PlaneGeometry(5.8,3.5), wallMat);
+    leftWall.position.set(-4.95,1.75,-.95); leftWall.rotation.y=Math.PI/2.18; group.add(leftWall);
+    const accent=new THREE.Mesh(new THREE.BoxGeometry(10.03,.18,.06), accentWallMat);
+    accent.position.set(0,3.3,-3.42); group.add(accent);
+
+    const reception = new THREE.Group();
+    const deskBody=new THREE.Mesh(new THREE.BoxGeometry(3.05,1.06,.86), new THREE.MeshStandardMaterial({color:0xebe6df, roughness:.93}));
+    deskBody.position.set(2.25,.53,-2.4); deskBody.castShadow=true; deskBody.receiveShadow=true; reception.add(deskBody);
+    const deskFront=new THREE.Mesh(new THREE.BoxGeometry(3.08,.3,.9), new THREE.MeshStandardMaterial({color:0xb9cfcf, roughness:.92}));
+    deskFront.position.set(2.25,.9,-2.05); reception.add(deskFront);
+    const deskTop=new THREE.Mesh(new THREE.BoxGeometry(3.1,.08,.92), new THREE.MeshStandardMaterial({color:0xf8f8f7, roughness:.82}));
+    deskTop.position.set(2.25,1.03,-2.4); reception.add(deskTop);
+    const frontGlow=new THREE.Mesh(new THREE.PlaneGeometry(2.0,.12), new THREE.MeshStandardMaterial({color:0xeef6f5, roughness:1, transparent:true, opacity:.55}));
+    frontGlow.position.set(2.25,.92,-1.59); reception.add(frontGlow);
+    const logoPanel=new THREE.Mesh(new THREE.PlaneGeometry(1.45,.52), new THREE.MeshStandardMaterial({color:0xdcebed, roughness:.98, transparent:true, opacity:.6}));
+    logoPanel.position.set(2.25,2.34,-3.4); reception.add(logoPanel);
+    scene.add(reception);
+
+    const waitingArea=new THREE.Group();
+    addChair(waitingArea,-1.65,-2.0,.08);
+    addChair(waitingArea,-.78,-2.0,-.04);
+    const sideTable=new THREE.Mesh(new THREE.CylinderGeometry(.18,.18,.42,18), new THREE.MeshStandardMaterial({color:0xd9cbbc, roughness:.95}));
+    sideTable.position.set(-1.22,.21,-2.02); waitingArea.add(sideTable);
+    const vase=new THREE.Mesh(new THREE.CylinderGeometry(.05,.07,.18,14), new THREE.MeshStandardMaterial({color:0xf4f6f7, roughness:.86}));
+    vase.position.set(-1.22,.52,-2.02); waitingArea.add(vase);
+    const stem=new THREE.Mesh(new THREE.CylinderGeometry(.008,.008,.16,8), new THREE.MeshStandardMaterial({color:0x87a58c, roughness:.92}));
+    stem.position.set(-1.22,.63,-2.02); waitingArea.add(stem);
+    const flower=new THREE.Mesh(new THREE.SphereGeometry(.05,10,10), new THREE.MeshStandardMaterial({color:0xd9e8df, roughness:.95}));
+    flower.position.set(-1.22,.73,-2.02); waitingArea.add(flower);
+    scene.add(waitingArea);
+
+    const examArea=new THREE.Group();
+    const examBase=new THREE.Mesh(new THREE.BoxGeometry(1.85,.18,.74), new THREE.MeshStandardMaterial({color:0xd6e6e5, roughness:.9}));
+    examBase.position.set(-3.05,.77,-2.55); examBase.castShadow=true; examArea.add(examBase);
+    const legMat=new THREE.MeshStandardMaterial({color:0xd4dade, roughness:.78});
+    [[-.78,-.26],[.78,-.26],[-.78,.26],[.78,.26]].forEach(([x,z])=>{const leg=new THREE.Mesh(new THREE.BoxGeometry(.08,.72,.08), legMat); leg.position.set(-3.05+x,.36,-2.55+z); examArea.add(leg)});
+    const pillow=new THREE.Mesh(new THREE.BoxGeometry(.46,.09,.26), new THREE.MeshStandardMaterial({color:0xfafafb, roughness:.9}));
+    pillow.position.set(-3.56,.89,-2.56); examArea.add(pillow);
+    scene.add(examArea);
+
+    const partitionFrame = new THREE.Mesh(new THREE.BoxGeometry(2.15,2.2,.05), new THREE.MeshStandardMaterial({color:0xf0f4f5, roughness:.96}));
+    partitionFrame.position.set(-3.95,1.55,-1.98); group.add(partitionFrame);
+    const partitionGlass = new THREE.Mesh(new THREE.PlaneGeometry(1.94,1.98), frostedMat);
+    partitionGlass.position.set(-3.95,1.56,-1.94); group.add(partitionGlass);
+
+    addPicture(group,-1.2,2.35,-3.4,0xd7ebe0,0xb7d3c5);
+    addPicture(group,.1,2.35,-3.4,0xdde8ef,0xc3d7e4);
+    addPicture(group,1.4,2.35,-3.4,0xe7dfd4,0xd8c5b5);
+
+    addPlant(group,4.05,-2.95,1.05);
+    addPlant(group,-4.35,-.9,.95);
+
+    const windowFrame = new THREE.Mesh(new THREE.BoxGeometry(2.5,1.55,.05), new THREE.MeshStandardMaterial({color:0xf2f5f6, roughness:.95}));
+    windowFrame.position.set(3.55,2.15,-3.42); group.add(windowFrame);
+    const windowGlass = new THREE.Mesh(new THREE.PlaneGeometry(2.28,1.33), glassMat);
+    windowGlass.position.set(3.55,2.15,-3.39); group.add(windowGlass);
+    const blind1 = new THREE.Mesh(new THREE.PlaneGeometry(2.04,.12), new THREE.MeshStandardMaterial({color:0xdce7eb, roughness:1, transparent:true, opacity:.48}));
+    blind1.position.set(3.55,1.9,-3.37); group.add(blind1);
+    const blind2 = blind1.clone(); blind2.position.y=2.15; group.add(blind2);
+    const blind3 = blind1.clone(); blind3.position.y=2.4; group.add(blind3);
+
+    const ceiling1=new THREE.Mesh(new THREE.PlaneGeometry(1.55,.58), new THREE.MeshStandardMaterial({color:0xeef2f4, emissive:0xffffff, emissiveIntensity:.035, roughness:.97}));
+    ceiling1.position.set(-1.45,3.16,-.35); ceiling1.rotation.x=Math.PI/2; group.add(ceiling1);
+    const ceiling2=ceiling1.clone(); ceiling2.position.x=1.45; group.add(ceiling2);
+
+    const blurLayer = new THREE.Mesh(new THREE.PlaneGeometry(9.6,3.2), new THREE.MeshStandardMaterial({color:0xffffff, transparent:true, opacity:.045, depthWrite:false}));
+    blurLayer.position.set(0,1.68,-3.18); group.add(blurLayer);
+
+    scene.add(group);
+  }
+  addClinic();
+
+  const loader=new FBXLoader();
+  let character=null,mixer=null,current=null,turning=false,turnStart=0;const clips={};
+  const say=t=>bubble.textContent=t;
+  function resize(){const r=stage.getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix()}new ResizeObserver(resize).observe(stage);resize();
+  function prepare(obj){
+    obj.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;if(o.material){const arr=Array.isArray(o.material)?o.material:[o.material];arr.forEach(m=>{if(m.map)m.map.colorSpace=THREE.SRGBColorSpace;m.side=THREE.FrontSide})}}});
+    const box=new THREE.Box3().setFromObject(obj), size=box.getSize(new THREE.Vector3());
+    const s=1.6/Math.max(size.y,.001); obj.scale.setScalar(s); obj.updateMatrixWorld(true);
+    const box2=new THREE.Box3().setFromObject(obj), center2=box2.getCenter(new THREE.Vector3());
+    obj.position.x-=center2.x; obj.position.z-=center2.z; obj.position.y-=box2.min.y;
+    obj.position.z=.38; obj.position.x=0; return obj;
+  }
+  function play(name){
+    if(!clips[name]||!mixer)return;
+    const a=mixer.clipAction(clips[name]); a.reset().fadeIn(.22).play();
+    if(current&&current!==a)current.fadeOut(.22); current=a;
+    status.textContent='Animação: '+name;
+    if(name==='idle')say('Estou parada em uma clínica mais sofisticada.');
+    if(name==='greet')say('Oi! 👋 Bem-vinda à clínica.');
+    if(name==='walk')say('Estou caminhando pela clínica.');
+  }
+
+  status.textContent='Carregando personagem…';
+  const base=await loader.loadAsync('./Idle.fbx');
+  character=prepare(base); scene.add(character); mixer=new THREE.AnimationMixer(character); if(base.animations?.[0])clips.idle=base.animations[0];
+  status.textContent='Carregando cumprimento…';
+  const greet=await loader.loadAsync('./Standing%20Greeting.fbx'); if(greet.animations?.[0])clips.greet=greet.animations[0];
+  status.textContent='Carregando caminhada…';
+  const walk=await loader.loadAsync('./Walking.fbx'); if(walk.animations?.[0])clips.walk=walk.animations[0];
+  play('idle'); loading.remove(); status.textContent='Pronta'; say('Pronto! Agora estou em uma clínica premium, com porcelanato claro, recepção elegante e fundo suave.');
+
+  document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{const a=b.dataset.act;if(a==='turn'){turning=true;turnStart=performance.now();say('Vou girar para você me ver melhor no cenário.')}else play(a)}));
+  document.getElementById('chat').addEventListener('submit',e=>{e.preventDefault();const input=document.getElementById('msg'),q=input.value.trim().toLowerCase();if(!q)return;if(q.includes('oi')||q.includes('acena')||q.includes('cumpr'))play('greet');else if(q.includes('anda')||q.includes('caminh'))play('walk');else if(q.includes('para')||q.includes('parad'))play('idle');else if(q.includes('gira')||q.includes('vira')){turning=true;turnStart=performance.now();say('Vou girar.')}else{say('Entendi. Vou te cumprimentar.');play('greet')}input.value=''});
+
+  const clock=new THREE.Clock();
+  function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.05);mixer?.update(dt);if(turning&&character){const t=(performance.now()-turnStart)/1000;if(t>=2.6){turning=false;character.rotation.y=0}else character.rotation.y=t*Math.PI*.78}controls.update();renderer.render(scene,camera)}
+  loop();
+ }catch(err){console.error(err);loading.textContent='Não consegui carregar o visualizador 3D. Veja a mensagem abaixo.';status.textContent='Erro';bubble.textContent=String(err?.message||err)}
+})();
+</script>
+</body>
+</html>
