@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Personagem 3D na Clínica</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;background:#0c0c0d;color:#fff;font-family:Inter,Segoe UI,Arial,sans-serif}
+  .wrap{max-width:1280px;margin:0 auto;padding:14px}
+  .stage{
+    position:relative;
+    width:100%;
+    aspect-ratio:16/9;
+    overflow:hidden;
+    border-radius:18px;
+    background:#1a1a1a url('./clinica.png') center center / 100% 100% no-repeat;
+    border:1px solid rgba(255,255,255,.12);
+  }
+  #threeLayer{position:absolute;inset:0;z-index:2;pointer-events:none}
+  #threeLayer canvas{display:block;width:100%;height:100%;background:transparent!important}
+  .panel{
+    position:absolute;z-index:4;
+    background:rgba(18,15,14,.70);
+    border:1px solid rgba(255,255,255,.12);
+    backdrop-filter:blur(8px);
+    border-radius:12px;
+    padding:9px 11px;
+  }
+  #status{left:14px;top:14px;font-size:13px}
+  #bubble{right:14px;top:14px;max-width:330px;line-height:1.35}
+  #loading{position:absolute;inset:0;z-index:6;display:flex;align-items:center;justify-content:center;background:rgba(20,14,12,.40);font-weight:700;text-shadow:0 1px 2px #000}
+  .controls{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  button{border:1px solid #464646;background:#232323;color:#fff;border-radius:10px;padding:10px 14px;font-size:15px;cursor:pointer}
+  button:hover{background:#303030}
+  form{display:flex;gap:8px;margin-top:10px}
+  input{flex:1;min-width:0;border:1px solid #464646;background:#171717;color:#fff;border-radius:10px;padding:11px 12px;font-size:16px}
+  .note{font-size:13px;color:#aaa;margin-top:9px;line-height:1.4}
+  @media(max-width:700px){
+    .wrap{padding:8px}.stage{border-radius:12px}
+    #bubble{left:12px;right:12px;top:auto;bottom:12px;max-width:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="stage" id="stage">
+    <div id="threeLayer"></div>
+    <div id="loading">Carregando personagem 3D…</div>
+    <div id="status" class="panel">Inicializando…</div>
+    <div id="bubble" class="panel">Oi! 👋</div>
+  </div>
+
+  <div class="controls">
+    <button type="button" data-act="idle">🙂 Parada</button>
+    <button type="button" data-act="greet">👋 Cumprimentar</button>
+    <button type="button" data-act="walk">🚶 Caminhar</button>
+    <button type="button" data-act="turn">↻ Girar</button>
+  </div>
+
+  <form id="chat">
+    <input id="msg" placeholder="Digite: oi, acena, anda, para, gira…" />
+    <button type="submit">Interagir</button>
+  </form>
+  <div class="note">O cenário é exatamente a imagem enviada e permanece completamente estático. Só a personagem é 3D e animada.</div>
+</div>
+
+<script type="module">
+(async()=>{
+  const stage=document.getElementById('stage');
+  const host=document.getElementById('threeLayer');
+  const loading=document.getElementById('loading');
+  const status=document.getElementById('status');
+  const bubble=document.getElementById('bubble');
+
+  try{
+    const THREE=await import('https://esm.sh/three@0.160.0');
+    const {FBXLoader}=await import('https://esm.sh/three@0.160.0/examples/jsm/loaders/FBXLoader.js');
+
+    const scene=new THREE.Scene();
+    scene.background=null;
+
+    // Camera fixa para o fundo permanecer exatamente estático.
+    const camera=new THREE.PerspectiveCamera(28,16/9,.01,100);
+    camera.position.set(0,1.44,4.15);
+    camera.lookAt(0,1.0,0);
+
+    const renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,premultipliedAlpha:true});
+    renderer.setClearColor(0x000000,0);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+    renderer.outputColorSpace=THREE.SRGBColorSpace;
+    renderer.shadowMap.enabled=false;
+    host.appendChild(renderer.domElement);
+
+    // Iluminação neutra e moderada: não troca materiais nem roupa da personagem.
+    scene.add(new THREE.HemisphereLight(0xffffff,0x5e493f,1.15));
+    const key=new THREE.DirectionalLight(0xffe6d4,1.25);
+    key.position.set(3.2,5.5,4.4);
+    scene.add(key);
+    const fill=new THREE.DirectionalLight(0xb7c8d6,.28);
+    fill.position.set(-3.5,3,-2.5);
+    scene.add(fill);
+
+    const loader=new FBXLoader();
+    let character=null,mixer=null,current=null;
+    let turning=false,turnStart=0;
+    const clips={};
+
+    function resize(){
+      const r=stage.getBoundingClientRect();
+      renderer.setSize(r.width,r.height,false);
+      camera.aspect=r.width/r.height;
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+    resize();
+
+    function prep(obj){
+      obj.traverse(o=>{
+        if(o.isMesh){
+          o.castShadow=false;o.receiveShadow=false;
+          const mats=Array.isArray(o.material)?o.material:[o.material];
+          mats.filter(Boolean).forEach(m=>{
+            if(m.map)m.map.colorSpace=THREE.SRGBColorSpace;
+            m.side=THREE.FrontSide;
+          });
+        }
+      });
+
+      const box=new THREE.Box3().setFromObject(obj);
+      const size=box.getSize(new THREE.Vector3());
+      const s=1.72/Math.max(size.y,.001);
+      obj.scale.setScalar(s);
+      obj.updateMatrixWorld(true);
+
+      const b2=new THREE.Box3().setFromObject(obj);
+      const c=b2.getCenter(new THREE.Vector3());
+      obj.position.x-=c.x;
+      obj.position.z-=c.z;
+      obj.position.y-=b2.min.y;
+
+      // Posição fixa para encaixar no corredor livre do cenário.
+      obj.position.x=-0.20;
+      obj.position.y=-0.08;
+      obj.position.z=0.25;
+      return obj;
+    }
+
+    function play(name){
+      if(!mixer||!clips[name])return;
+      const next=mixer.clipAction(clips[name]);
+      next.reset().fadeIn(.20).play();
+      if(current&&current!==next)current.fadeOut(.20);
+      current=next;
+      status.textContent='Animação: '+name;
+      if(name==='idle')bubble.textContent='Estou parada.';
+      if(name==='greet')bubble.textContent='Oi! 👋';
+      if(name==='walk')bubble.textContent='Estou caminhando.';
+    }
+
+    status.textContent='Carregando personagem…';
+    const base=await loader.loadAsync('./Idle.fbx');
+    character=prep(base);
+    scene.add(character);
+    mixer=new THREE.AnimationMixer(character);
+    if(base.animations?.[0])clips.idle=base.animations[0];
+
+    status.textContent='Carregando cumprimento…';
+    const greet=await loader.loadAsync('./Standing%20Greeting.fbx');
+    if(greet.animations?.[0])clips.greet=greet.animations[0];
+
+    status.textContent='Carregando caminhada…';
+    const walk=await loader.loadAsync('./Walking.fbx');
+    if(walk.animations?.[0])clips.walk=walk.animations[0];
+
+    play('idle');
+    loading.remove();
+    status.textContent='Pronta';
+    bubble.textContent='Pronto. Agora estou exatamente nesse cenário.';
+
+    document.querySelectorAll('[data-act]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const a=btn.dataset.act;
+        if(a==='turn'){
+          turning=true;turnStart=performance.now();
+          bubble.textContent='Vou girar.';
+        }else play(a);
+      });
+    });
+
+    document.getElementById('chat').addEventListener('submit',e=>{
+      e.preventDefault();
+      const input=document.getElementById('msg');
+      const q=input.value.trim().toLowerCase();
+      if(!q)return;
+      if(q.includes('oi')||q.includes('acena')||q.includes('cumpr'))play('greet');
+      else if(q.includes('anda')||q.includes('caminh'))play('walk');
+      else if(q.includes('para')||q.includes('parad'))play('idle');
+      else if(q.includes('gira')||q.includes('vira')){turning=true;turnStart=performance.now();bubble.textContent='Vou girar.';}
+      else play('greet');
+      input.value='';
+    });
+
+    const clock=new THREE.Clock();
+    function loop(){
+      requestAnimationFrame(loop);
+      mixer?.update(Math.min(clock.getDelta(),.05));
+      if(turning&&character){
+        const t=(performance.now()-turnStart)/1000;
+        if(t>=2.6){turning=false;character.rotation.y=0;}
+        else character.rotation.y=t*Math.PI*.78;
+      }
+      renderer.render(scene,camera);
+    }
+    loop();
+  }catch(err){
+    console.error(err);
+    loading.textContent='Erro ao carregar a personagem.';
+    status.textContent='Erro';
+    bubble.textContent=String(err?.message||err);
+  }
+})();
+</script>
+</body>
+</html>
