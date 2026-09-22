@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Personagem 3D Interativa</title>
+<style>
+  :root{color-scheme:dark}*{box-sizing:border-box}
+  body{margin:0;background:#0f1113;color:#f6f6f6;font-family:Inter,Segoe UI,Arial,sans-serif}
+  .wrap{max-width:1120px;margin:auto;padding:16px}
+  .stage{height:72vh;min-height:520px;position:relative;overflow:hidden;border:1px solid #333;border-radius:20px;background:linear-gradient(#dfe6ea,#cad3d8)}
+  canvas{display:block;width:100%;height:100%}
+  .panel{position:absolute;background:rgba(18,18,18,.76);backdrop-filter:blur(8px);border:1px solid rgba(255,255,255,.14);border-radius:13px;padding:10px 12px;z-index:3}
+  #status{left:14px;top:14px;font-size:13px}
+  #bubble{right:14px;top:14px;max-width:350px;line-height:1.35}
+  #loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(233,239,242,.86);color:#151515;font-size:18px;font-weight:700;z-index:5;text-align:center;padding:20px}
+  #hint{left:14px;bottom:14px;font-size:13px;max-width:420px}
+  .controls{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  button{border:1px solid #444;background:#252525;color:white;border-radius:10px;padding:10px 14px;font-size:15px;cursor:pointer}button:hover{background:#323232}
+  form{display:flex;gap:8px;margin-top:10px}input{flex:1;min-width:0;border:1px solid #444;background:#191919;color:#fff;border-radius:10px;padding:11px;font-size:16px}
+  .small{margin-top:10px;color:#aaa;font-size:13px;line-height:1.45}
+  @media(max-width:650px){.stage{height:64vh;min-height:430px}#bubble{left:14px;right:14px;top:auto;bottom:70px;max-width:none}#hint{display:none}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="stage" class="stage">
+    <div id="loading">Montando a clínica e carregando a personagem 3D…</div>
+    <div id="status" class="panel">Inicializando…</div>
+    <div id="bubble" class="panel">Oi! Agora vou aparecer dentro de um cenário de clínica, com o foco principal em mim.</div>
+    <div id="hint" class="panel">Cenário estático de clínica, com chão em azulejo e fundo mais suave para manter o foco na personagem.</div>
+  </div>
+  <div class="controls">
+    <button type="button" data-act="idle">🙂 Parada</button>
+    <button type="button" data-act="greet">👋 Cumprimentar</button>
+    <button type="button" data-act="walk">🚶 Caminhar</button>
+    <button type="button" data-act="turn">↻ Girar</button>
+  </div>
+  <form id="chat"><input id="msg" placeholder="Digite: oi, acena, anda, para, gira…"><button>Interagir</button></form>
+  <div class="small">Versão para GitHub Pages. Os arquivos FBX são carregados diretamente do seu repositório público.</div>
+</div>
+
+<script type="module">
+(async()=>{
+ const loading=document.getElementById('loading'),status=document.getElementById('status'),bubble=document.getElementById('bubble'),stage=document.getElementById('stage');
+ try{
+  const BASE='https://cdn.jsdelivr.net/gh/larissaduar7e-cloud/personagem-3d@main';
+  status.textContent='Carregando motor 3D…';
+  const THREE=await import('https://esm.sh/three@0.160.0');
+  const {OrbitControls}=await import('https://esm.sh/three@0.160.0/examples/jsm/controls/OrbitControls.js');
+  const {FBXLoader}=await import('https://esm.sh/three@0.160.0/examples/jsm/loaders/FBXLoader.js');
+
+  const scene=new THREE.Scene();
+  scene.background=new THREE.Color(0xcfd7dc);
+  scene.fog=new THREE.Fog(0xcfd7dc,7.8,14.5);
+
+  const camera=new THREE.PerspectiveCamera(30,1,.01,100);
+  camera.position.set(0,1.45,4.65);
+
+  const renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));
+  renderer.outputColorSpace=THREE.SRGBColorSpace;
+  renderer.shadowMap.enabled=true;
+  renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+  stage.appendChild(renderer.domElement);
+
+  const controls=new OrbitControls(camera,renderer.domElement);
+  controls.target.set(0,1.02,0);
+  controls.enableDamping=true;
+  controls.minDistance=2.0;
+  controls.maxDistance=7.2;
+  controls.maxPolarAngle=Math.PI*.53;
+
+  scene.add(new THREE.HemisphereLight(0xf6fbff,0x75818a,1.15));
+  const key=new THREE.DirectionalLight(0xfff4ea,1.55);key.position.set(4.2,6.2,4.8);key.castShadow=true;key.shadow.mapSize.set(2048,2048);scene.add(key);
+  const fill=new THREE.DirectionalLight(0xc8deea,0.45);fill.position.set(-5,4,-3);scene.add(fill);
+  const soft=new THREE.PointLight(0xffffff,.28,8);soft.position.set(0,2.7,1.2);scene.add(soft);
+
+  function makeTileTexture(){
+    const c=document.createElement('canvas'); c.width=1024; c.height=1024;
+    const g=c.getContext('2d');
+    g.fillStyle='#edf2f4'; g.fillRect(0,0,c.width,c.height);
+    const tile=128;
+    for(let y=0;y<c.height;y+=tile){
+      for(let x=0;x<c.width;x+=tile){
+        const tone=((x/tile+y/tile)%2===0)?'#eef3f5':'#e7ecef';
+        g.fillStyle=tone; g.fillRect(x,y,tile,tile);
+        g.strokeStyle='rgba(180,190,196,.65)'; g.lineWidth=5; g.strokeRect(x,y,tile,tile);
+        g.fillStyle='rgba(255,255,255,.18)'; g.fillRect(x+10,y+10,tile-20,12);
+      }
+    }
+    const tx=new THREE.CanvasTexture(c);
+    tx.wrapS=tx.wrapT=THREE.RepeatWrapping;
+    tx.repeat.set(6,6);
+    tx.anisotropy=8;
+    tx.colorSpace=THREE.SRGBColorSpace;
+    return tx;
+  }
+
+  function addClinic(){
+    const group=new THREE.Group();
+    const floorMat=new THREE.MeshStandardMaterial({map:makeTileTexture(), roughness:.94, metalness:0});
+    const floor=new THREE.Mesh(new THREE.PlaneGeometry(12,10), floorMat);
+    floor.rotation.x=-Math.PI/2; floor.receiveShadow=true; group.add(floor);
+
+    const backWall=new THREE.Mesh(new THREE.PlaneGeometry(9.4,3.5), new THREE.MeshStandardMaterial({color:0xe4eaee, roughness:.98}));
+    backWall.position.set(0,1.75,-3.2); group.add(backWall);
+    const sideWall=new THREE.Mesh(new THREE.PlaneGeometry(4.8,3.4), new THREE.MeshStandardMaterial({color:0xdfe6ea, roughness:.99}));
+    sideWall.position.set(-4.7,1.72,-1.1); sideWall.rotation.y=Math.PI/2.25; group.add(sideWall);
+    const headerBand=new THREE.Mesh(new THREE.BoxGeometry(9.45,.18,.06), new THREE.MeshStandardMaterial({color:0xb8c8d0, roughness:.95}));
+    headerBand.position.set(0,3.25,-3.16); group.add(headerBand);
+
+    const reception=new THREE.Mesh(new THREE.BoxGeometry(2.7,1.05,.75), new THREE.MeshStandardMaterial({color:0xe8ecee, roughness:.92}));
+    reception.position.set(2.2,.53,-2.15); reception.castShadow=true; reception.receiveShadow=true; group.add(reception);
+    const receptionFront=new THREE.Mesh(new THREE.BoxGeometry(2.72,.28,.8), new THREE.MeshStandardMaterial({color:0xaec8d2, roughness:.9}));
+    receptionFront.position.set(2.2,.92,-1.9); group.add(receptionFront);
+    const deskTop=new THREE.Mesh(new THREE.BoxGeometry(2.8,.08,.82), new THREE.MeshStandardMaterial({color:0xf5f7f8, roughness:.86}));
+    deskTop.position.set(2.2,1.02,-2.15); group.add(deskTop);
+    const logoPanel=new THREE.Mesh(new THREE.PlaneGeometry(1.35,.46), new THREE.MeshStandardMaterial({color:0xcfe0e5, roughness:.98, transparent:true, opacity:.62}));
+    logoPanel.position.set(2.18,2.35,-3.14); group.add(logoPanel);
+
+    const examBase=new THREE.Mesh(new THREE.BoxGeometry(1.8,.18,.72), new THREE.MeshStandardMaterial({color:0xd2e3e4, roughness:.9}));
+    examBase.position.set(-2.15,.76,-2.25); examBase.castShadow=true; group.add(examBase);
+    const examLegMat=new THREE.MeshStandardMaterial({color:0xd6dde0, roughness:.78});
+    [[-.75,-.26],[.75,-.26],[-.75,.26],[.75,.26]].forEach(([x,z])=>{
+      const leg=new THREE.Mesh(new THREE.BoxGeometry(.08,.7,.08), examLegMat); leg.position.set(-2.15+x,.35,-2.25+z); group.add(leg);
+    });
+    const pillow=new THREE.Mesh(new THREE.BoxGeometry(.42,.08,.24), new THREE.MeshStandardMaterial({color:0xf8f9fa, roughness:.9}));
+    pillow.position.set(-2.65,.89,-2.23); group.add(pillow);
+
+    const curtainRail=new THREE.Mesh(new THREE.BoxGeometry(1.45,.05,.05), new THREE.MeshStandardMaterial({color:0xcdd7db, roughness:.88}));
+    curtainRail.position.set(-3.2,2.5,-1.95); group.add(curtainRail);
+    const curtain=new THREE.Mesh(new THREE.PlaneGeometry(1.15,1.5), new THREE.MeshStandardMaterial({color:0xc9e2da, roughness:.98, transparent:true, opacity:.46, side:THREE.DoubleSide}));
+    curtain.position.set(-3.2,1.65,-2.0); group.add(curtain);
+
+    const plantPot=new THREE.Mesh(new THREE.CylinderGeometry(.18,.2,.34,18), new THREE.MeshStandardMaterial({color:0xd8d0c9, roughness:.92}));
+    plantPot.position.set(3.85,.17,-2.8); group.add(plantPot);
+    for(let i=0;i<7;i++){
+      const leaf=new THREE.Mesh(new THREE.SphereGeometry(.18,10,10), new THREE.MeshStandardMaterial({color:i%2?'#7ea68f':'#92b7a1', roughness:.9}));
+      leaf.scale.set(.9,1.6,.6); leaf.position.set(3.85+(Math.sin(i)*.18),.55+i*.09,-2.8+(Math.cos(i)*.12)); group.add(leaf);
+    }
+
+    const frameMat=new THREE.MeshStandardMaterial({color:0xecf3f5, roughness:.96, transparent:true, opacity:.48});
+    const glassMat=new THREE.MeshStandardMaterial({color:0xb8ced9, roughness:.22, metalness:.02, transparent:true, opacity:.18});
+    [[-1.25,2.3],[0,2.3],[1.25,2.3]].forEach(([x,y],idx)=>{
+      const frame=new THREE.Mesh(new THREE.BoxGeometry(1.05,.78,.05), frameMat); frame.position.set(x,y,-3.14); group.add(frame);
+      const glass=new THREE.Mesh(new THREE.PlaneGeometry(.92,.66), glassMat); glass.position.set(x,y,-3.11); group.add(glass);
+      const stripe=new THREE.Mesh(new THREE.PlaneGeometry(.72,.08), new THREE.MeshStandardMaterial({color: idx===1?0xcbe8dd:0xd5e6ef, roughness:.95, transparent:true, opacity:.45}));
+      stripe.position.set(x,y-.02,-3.09); group.add(stripe);
+    });
+
+    const ceilingPanelMat=new THREE.MeshStandardMaterial({color:0xe9eef1, emissive:0xffffff, emissiveIntensity:.03, roughness:.95});
+    [[-1.35,3.15,-.4],[1.35,3.15,-.4]].forEach(([x,y,z])=>{
+      const p=new THREE.Mesh(new THREE.PlaneGeometry(1.35,.5), ceilingPanelMat); p.position.set(x,y,z); p.rotation.x=Math.PI/2; group.add(p);
+    });
+
+    const blurScreen=new THREE.Mesh(new THREE.PlaneGeometry(8.6,3.1), new THREE.MeshStandardMaterial({color:0xcfdbe2, transparent:true, opacity:.06, depthWrite:false}));
+    blurScreen.position.set(0,1.6,-2.95); group.add(blurScreen);
+    group.position.z=-0.2;
+    scene.add(group);
+  }
+  addClinic();
+
+  const loader=new FBXLoader();
+  let character=null,mixer=null,current=null,turning=false,turnStart=0;const clips={};
+  const say=t=>bubble.textContent=t;
+  function resize(){const r=stage.getBoundingClientRect();renderer.setSize(r.width,r.height,false);camera.aspect=r.width/r.height;camera.updateProjectionMatrix()}new ResizeObserver(resize).observe(stage);resize();
+  function prepare(obj){
+    obj.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;if(o.material){const arr=Array.isArray(o.material)?o.material:[o.material];arr.forEach(m=>{if(m.map)m.map.colorSpace=THREE.SRGBColorSpace;m.side=THREE.FrontSide})}}});
+    const box=new THREE.Box3().setFromObject(obj), size=box.getSize(new THREE.Vector3());
+    const s=1.58/Math.max(size.y,.001); obj.scale.setScalar(s); obj.updateMatrixWorld(true);
+    const box2=new THREE.Box3().setFromObject(obj), center2=box2.getCenter(new THREE.Vector3());
+    obj.position.x-=center2.x; obj.position.z-=center2.z; obj.position.y-=box2.min.y;
+    obj.position.z=.32; obj.position.x=0; return obj;
+  }
+  function play(name){
+    if(!clips[name]||!mixer)return;
+    const a=mixer.clipAction(clips[name]); a.reset().fadeIn(.22).play();
+    if(current&&current!==a)current.fadeOut(.22); current=a;
+    status.textContent='Animação: '+name;
+    if(name==='idle')say('Estou parada na clínica.');
+    if(name==='greet')say('Oi! 👋 Bem-vinda à clínica.');
+    if(name==='walk')say('Estou caminhando pela clínica.');
+  }
+
+  status.textContent='Carregando personagem…';
+  const base=await loader.loadAsync(BASE + '/Idle.fbx');
+  character=prepare(base); scene.add(character); mixer=new THREE.AnimationMixer(character); if(base.animations?.[0])clips.idle=base.animations[0];
+  status.textContent='Carregando cumprimento…';
+  const greet=await loader.loadAsync(BASE + '/Standing%20Greeting.fbx'); if(greet.animations?.[0])clips.greet=greet.animations[0];
+  status.textContent='Carregando caminhada…';
+  const walk=await loader.loadAsync(BASE + '/Walking.fbx'); if(walk.animations?.[0])clips.walk=walk.animations[0];
+  play('idle'); loading.remove(); status.textContent='Pronta'; say('Pronto! Agora estou em um cenário de clínica com piso em azulejo e fundo suave.');
+
+  document.querySelectorAll('[data-act]').forEach(b=>b.addEventListener('click',()=>{const a=b.dataset.act;if(a==='turn'){turning=true;turnStart=performance.now();say('Vou girar para você me ver melhor no cenário.')}else play(a)}));
+  document.getElementById('chat').addEventListener('submit',e=>{e.preventDefault();const input=document.getElementById('msg'),q=input.value.trim().toLowerCase();if(!q)return;if(q.includes('oi')||q.includes('acena')||q.includes('cumpr'))play('greet');else if(q.includes('anda')||q.includes('caminh'))play('walk');else if(q.includes('para')||q.includes('parad'))play('idle');else if(q.includes('gira')||q.includes('vira')){turning=true;turnStart=performance.now();say('Vou girar.')}else{say('Entendi. Vou te cumprimentar.');play('greet')}input.value=''});
+
+  const clock=new THREE.Clock();
+  function loop(){requestAnimationFrame(loop);const dt=Math.min(clock.getDelta(),.05);mixer?.update(dt);if(turning&&character){const t=(performance.now()-turnStart)/1000;if(t>=2.6){turning=false;character.rotation.y=0}else character.rotation.y=t*Math.PI*.78}controls.update();renderer.render(scene,camera)}
+  loop();
+ }catch(err){console.error(err);loading.textContent='Não consegui carregar o visualizador 3D.';status.textContent='Erro';bubble.textContent=String(err?.message||err)}
+})();
+</script>
+</body>
+</html>
